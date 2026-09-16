@@ -37,7 +37,21 @@ public class MainMenuManager : MonoBehaviour
         SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex + 1);
     }
 
-    public void QuitGame() { PlayClickSound(); Application.Quit(); }
+    public void QuitGame()
+    {
+        PlayClickSound();
+
+        // This prints a message to your console so you know the button works
+        Debug.Log("Quit Game Button Pressed!");
+
+        // This closes the actual built game
+        Application.Quit();
+
+        // This stops the play mode inside the Unity Editor
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#endif
+    }
 
     private void PlayClickSound()
     {
