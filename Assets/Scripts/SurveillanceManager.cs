@@ -26,6 +26,9 @@ public class SurveillanceManager : MonoBehaviour
         {
             waveBars = waveformBarsContainer.GetComponentsInChildren<Image>();
         }
+
+        // Clear inspector placeholder text at boot before first visitor spawns
+        if (dialogueText != null) dialogueText.text = "";
     }
 
     public void DisplayAlienTransmission(AlienProfile profile, bool isUnmasked = false)

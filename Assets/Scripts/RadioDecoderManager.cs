@@ -23,12 +23,20 @@ public class RadioDecoderManager : MonoBehaviour
 
     [Header("Audio Feedback")]
     [SerializeField] private AudioSource radioStaticAudio;
-    [SerializeField] private float minPitch = 0.4f;
-    [SerializeField] private float maxPitch = 1.8f;
+    [SerializeField] private AudioSource lockBeepAudioSource;
+    [SerializeField] private AudioClip signalLockSFX;
+    [SerializeField] private float minPitch = 0.5f;
+    [SerializeField] private float maxPitch = 1.6f;
 
-    [Header("Decoder Settings")]
-    [SerializeField] private float matchTolerance = 0.15f;
-    [SerializeField] private float lockHoldTime = 1.2f;
+    [Header("Decoder Tuning Settings")]
+    [Tooltip("Tolerance threshold (0.05 = tight precision required, 0.15 = easy tuning)")]
+    [SerializeField] private float matchTolerance = 0.08f;
+    [SerializeField] private float lockHoldTime = 1.0f;
+
+    [Header("Color States for Status Lamp")]
+    [SerializeField] private Color searchingColor = new Color(0.8f, 0.1f, 0.1f);
+    [SerializeField] private Color tuningColor = new Color(0.9f, 0.7f, 0.1f);
+    [SerializeField] private Color lockedColor = new Color(0.0f, 1.0f, 0.4f);
 
     private float targetFrequency;
     private float targetPhase;
@@ -48,17 +56,27 @@ public class RadioDecoderManager : MonoBehaviour
         IsSignalLocked = false;
         currentLockTimer = 0f;
 
-        if (lockProgressBar) lockProgressBar.value = 0f;
-        if (lockStatusLamp) lockStatusLamp.color = new Color(0.3f, 0.1f, 0.1f);
+        // Reset UI Feedback
+        if (lockProgressBar != null) lockProgressBar.value = 0f;
+        if (lockStatusLamp != null) lockStatusLamp.color = searchingColor;
+        if (decodedOutputText != null) decodedOutputText.text = "";
 
-        if (targetWaveGraphic)
+        // Update Target Waveform display
+        if (targetWaveGraphic != null)
         {
             targetWaveGraphic.frequency = Mathf.Lerp(minVisualFreq, maxVisualFreq, targetFrequency);
             targetWaveGraphic.phaseOffset = Mathf.Lerp(minVisualPhase, maxVisualPhase, targetPhase);
         }
 
-        if (radioStaticAudio && !radioStaticAudio.isPlaying)
-            radioStaticAudio.Play();
+        // Play or restart static audio
+        if (radioStaticAudio != null)
+        {
+            radioStaticAudio.volume = 1.0f;
+            if (!radioStaticAudio.isPlaying) radioStaticAudio.Play();
+        }
+
+        // Force initial display to be completely garbled
+        UpdateTextScramble(0f);
     }
 
     private void Update()
@@ -68,13 +86,18 @@ public class RadioDecoderManager : MonoBehaviour
         float currentAccuracy = CalculateAccuracy();
 
         UpdateWaveformVisual();
-        UpdateAudioPitch();
+        UpdateAudioFeedback(currentAccuracy);
         UpdateTextScramble(currentAccuracy);
 
-        if (currentAccuracy >= (1f - matchTolerance))
+        // Required accuracy threshold
+        float requiredAccuracy = 1f - matchTolerance;
+
+        if (currentAccuracy >= requiredAccuracy)
         {
+            // Update hold timer
             currentLockTimer += Time.deltaTime;
-            if (lockProgressBar) lockProgressBar.value = currentLockTimer / lockHoldTime;
+            if (lockProgressBar != null) lockProgressBar.value = currentLockTimer / lockHoldTime;
+            if (lockStatusLamp != null) lockStatusLamp.color = tuningColor;
 
             if (currentLockTimer >= lockHoldTime)
             {
@@ -83,34 +106,47 @@ public class RadioDecoderManager : MonoBehaviour
         }
         else
         {
-            currentLockTimer = Mathf.Max(0f, currentLockTimer - (Time.deltaTime * 1.5f));
-            if (lockProgressBar) lockProgressBar.value = currentLockTimer / lockHoldTime;
+            // Decays lock timer when off frequency
+            currentLockTimer = Mathf.Max(0f, currentLockTimer - (Time.deltaTime * 2.0f));
+            if (lockProgressBar != null) lockProgressBar.value = currentLockTimer / lockHoldTime;
+            if (lockStatusLamp != null) lockStatusLamp.color = searchingColor;
         }
     }
 
     private float CalculateAccuracy()
     {
         if (frequencyKnob == null || phaseKnob == null) return 0f;
+
         float freqError = Mathf.Abs(frequencyKnob.CurrentValue - targetFrequency);
         float phaseError = Mathf.Abs(phaseKnob.CurrentValue - targetPhase);
-        return Mathf.Clamp01(1f - ((freqError + phaseError) / 2f));
+
+        // Linear alignment value (0 to 1)
+        float rawAccuracy = Mathf.Clamp01(1f - ((freqError + phaseError) / 2f));
+
+        // Exponential curve: Keeps text garbled until player is very close to target frequency
+        return Mathf.Pow(rawAccuracy, 3.5f);
     }
 
     private void UpdateWaveformVisual()
     {
-        if (playerWaveGraphic && frequencyKnob && phaseKnob)
+        if (playerWaveGraphic != null && frequencyKnob != null && phaseKnob != null)
         {
             playerWaveGraphic.frequency = Mathf.Lerp(minVisualFreq, maxVisualFreq, frequencyKnob.CurrentValue);
             playerWaveGraphic.phaseOffset = Mathf.Lerp(minVisualPhase, maxVisualPhase, phaseKnob.CurrentValue);
         }
     }
 
-    private void UpdateAudioPitch()
+    private void UpdateAudioFeedback(float accuracy)
     {
-        if (!radioStaticAudio || !frequencyKnob) return;
+        if (radioStaticAudio == null || frequencyKnob == null) return;
+
         float freqError = Mathf.Abs(frequencyKnob.CurrentValue - targetFrequency);
-        radioStaticAudio.pitch = Mathf.Lerp(1.0f, maxPitch, freqError);
-        radioStaticAudio.volume = Mathf.Lerp(0.3f, 1.0f, freqError);
+
+        // Pitch shifts with tuning error
+        radioStaticAudio.pitch = Mathf.Lerp(minPitch, maxPitch, freqError);
+
+        // Static quiets down as accuracy increases (clearer signal)
+        radioStaticAudio.volume = Mathf.Lerp(1.0f, 0.15f, accuracy);
     }
 
     private void UpdateTextScramble(float accuracy)
@@ -123,11 +159,14 @@ public class RadioDecoderManager : MonoBehaviour
 
         for (int i = 0; i < total; i++)
         {
-            if (chars[i] == ' ' || chars[i] == '.' || chars[i] == ':') continue;
+            // Preserve spacing and punctuation
+            if (chars[i] == ' ' || chars[i] == '.' || chars[i] == ':' || chars[i] == '-') continue;
 
             if (i >= revealedCount)
             {
-                chars[i] = ScramblePool[Random.Range(0, ScramblePool.Length)];
+                // Assign pseudo-random character from pool
+                int randomIndex = (i + (int)(Time.time * 20f)) % ScramblePool.Length;
+                chars[i] = ScramblePool[randomIndex];
             }
         }
 
@@ -137,10 +176,18 @@ public class RadioDecoderManager : MonoBehaviour
     private void LockSignal()
     {
         IsSignalLocked = true;
-        if (lockProgressBar) lockProgressBar.value = 1f;
-        if (lockStatusLamp) lockStatusLamp.color = new Color(0.0f, 1.0f, 0.4f);
-        if (decodedOutputText) decodedOutputText.text = originalMessage;
 
-        if (radioStaticAudio) radioStaticAudio.Stop();
+        if (lockProgressBar != null) lockProgressBar.value = 1f;
+        if (lockStatusLamp != null) lockStatusLamp.color = lockedColor;
+        if (decodedOutputText != null) decodedOutputText.text = originalMessage;
+
+        // Quiet or stop static upon lock
+        if (radioStaticAudio != null) radioStaticAudio.Stop();
+
+        // Optional lock chirp sound
+        if (lockBeepAudioSource != null && signalLockSFX != null)
+        {
+            lockBeepAudioSource.PlayOneShot(signalLockSFX);
+        }
     }
 }

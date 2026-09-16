@@ -32,15 +32,41 @@ public class DocumentManager : MonoBehaviour
 
         if (idNumText != null) idNumText.text = $"ID: {generatedID}";
         if (entryCodeText != null) entryCodeText.text = $"ENTRY CODE: {generatedCode}";
-        if (purposeText != null) purposeText.text = "PURPOSE: TRANSIT";
+
+        // 3. Set Clearance & Document Declaration
+        if (purposeText != null)
+        {
+            purposeText.text = GetClearanceDeclaration(profile);
+        }
+
         if (expirationText != null) expirationText.text = "EXPIRES: SHIFT END";
 
-        // 3. Assign Alien Portrait using safe bitwise hash masking
+        // 4. Assign Alien Portrait using safe bitwise hash masking
         if (alienPhoto != null && defaultAlienPortraits != null && defaultAlienPortraits.Length > 0)
         {
             int hash = !string.IsNullOrEmpty(profile.alienName) ? profile.alienName.GetHashCode() : 0;
             int spriteIndex = (hash & 0x7FFFFFFF) % defaultAlienPortraits.Length;
             alienPhoto.sprite = defaultAlienPortraits[spriteIndex];
+        }
+    }
+
+    private string GetClearanceDeclaration(AlienProfile profile)
+    {
+        switch (profile.cargoThreat)
+        {
+            case ThreatCategory.Safe:
+                return "CLEARANCE: CLASS-A (DECLARED SAFE)";
+
+            case ThreatCategory.Hazard:
+                // Smuggler chance: 50% forge Class-A safe docs, 50% declare Class-C hazard
+                bool isSmuggler = ((profile.alienName.GetHashCode() & 1) == 0);
+                return isSmuggler ? "CLEARANCE: CLASS-A (DECLARED SAFE)" : "CLEARANCE: CLASS-C (HAZARD)";
+
+            case ThreatCategory.Unknown:
+                return "CLEARANCE: CLASS-B (SCAN REQUIRED)";
+
+            default:
+                return "CLEARANCE: UNKNOWN";
         }
     }
 }
